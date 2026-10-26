@@ -13,6 +13,11 @@ export type Food = {
   isApproximate: boolean;
 };
 
+export type FoodDatabaseRow = {
+  id: string;
+  catalog_code: string | null;
+};
+
 export type FoodEntry = {
   id: string;
   food: Food;
@@ -44,6 +49,14 @@ export const foods: Food[] = [
   { id: "menemen", name: "Menemen", alternativeNames: ["Yumurtalı menemen"], caloriesPer100: 120, proteinPer100: 6, defaultUnit: "portion", defaultQuantity: 1, gramsPerUnit: 200, source: "İçerik tarifine göre yaklaşık hesap", isApproximate: true },
   { id: "kuru-fasulye", name: "Kuru fasulye (pişmiş)", alternativeNames: ["Fasulye yemeği"], caloriesPer100: 140, proteinPer100: 9, defaultUnit: "cup", defaultQuantity: 1, gramsPerUnit: 200, source: "İçerik tarifine göre yaklaşık hesap", isApproximate: true },
 ];
+
+export function resolveFoodDatabaseId(foodCode: string, rows: FoodDatabaseRow[]): string {
+  const row = rows.find((candidate) => candidate.catalog_code === foodCode);
+  if (!row || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(row.id)) {
+    throw new Error(`"${foodCode}" için veritabanı yiyecek kaydı bulunamadı. Lütfen sayfayı yenileyin.`);
+  }
+  return row.id;
+}
 
 export function quantityToGrams(quantity: number, unit: FoodUnit, gramsPerUnit: number): number {
   if (!Number.isFinite(quantity) || quantity < 0) throw new Error("Miktar sıfır veya daha büyük olmalıdır.");

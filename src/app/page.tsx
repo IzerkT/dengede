@@ -6,7 +6,9 @@ import { createClient } from "@/lib/supabase/browser";
 import {
   calculateNutrition,
   foods as localFoods,
+  resolveFoodDatabaseId,
   type Food,
+  type FoodDatabaseRow,
   type FoodUnit,
 } from "@/lib/nutrition";
 import { formatTurkishDate, todayInIstanbul } from "@/lib/date";
@@ -159,6 +161,8 @@ export default function Home() {
   >("today");
   const [calendarUserId, setCalendarUserId] = useState("");
   const [foodId, setFoodId] = useState("");
+  const [foods, setFoods] = useState(localFoods);
+  const [foodDatabaseRows, setFoodDatabaseRows] = useState<FoodDatabaseRow[]>([]);
   const [quantity, setQuantity] = useState(1);
   const [unit, setUnit] = useState<FoodUnit>("piece");
   const [meal, setMeal] = useState("breakfast");
@@ -172,7 +176,6 @@ export default function Home() {
   const [pending, setPending] = useState(false);
   const loadVersion = useRef(0);
 
-  const foods = localFoods;
   const selectedFood = foods.find((food) => food.id === foodId) ?? foods[0];
   const dates = useMemo(() => monthDates(month), [month]);
   const goalForDate = useCallback(
@@ -216,6 +219,7 @@ export default function Home() {
         goalsResult,
         allGoalsResult,
         historyResult,
+        foodsResult,
       ] = await Promise.all([
         supabase
           .from("profiles")
@@ -258,6 +262,7 @@ export default function Home() {
           .in("user_id", memberIds)
           .lte("valid_from", `${selectedMonth}-31`)
           .order("valid_from", { ascending: false }),
+        supabase.from("foods").select("id, catalog_code"),
       ]);
       if (
         membersResult.error ||
@@ -266,7 +271,8 @@ export default function Home() {
         waterResult.error ||
         goalsResult.error ||
         allGoalsResult.error ||
-        historyResult.error
+        historyResult.error ||
+        foodsResult.error
       )
         throw (
           membersResult.error ??
@@ -275,9 +281,16 @@ export default function Home() {
           waterResult.error ??
           goalsResult.error ??
           allGoalsResult.error ??
-          historyResult.error
+          historyResult.error ??
+          foodsResult.error
         );
       if (requestId !== loadVersion.current) return;
+      const databaseRows = (foodsResult.data ?? []) as FoodDatabaseRow[];
+      localFoods.forEach((food) =>
+        resolveFoodDatabaseId(food.id, databaseRows),
+      );
+      setFoodDatabaseRows(databaseRows);
+      setFoods(localFoods);
       const profileRows = memberIds.length
         ? await supabase
             .from("profiles")
@@ -358,9 +371,9 @@ export default function Home() {
           })),
           { onConflict: "user_id,achievement_id", ignoreDuplicates: true },
         );
-      if (!foodId) setFoodId(foods[0].id);
+      if (!foodId) setFoodId(localFoods[0].id);
     },
-    [foodId, foods, supabase],
+    [foodId, supabase],
   );
 
   useEffect(() => {
@@ -445,35 +458,55 @@ export default function Home() {
     if (!user || !spaceId || saving || quantity <= 0) return;
     setSaving(true);
     setError("");
-    const result = calculateNutrition(selectedFood, quantity, unit);
-    const entry = await supabase
-      .from("food_entries")
-      .insert({ space_id: spaceId, owner_id: user.id, meal })
-      .select("id")
-      .single();
-    if (entry.error) setError(entry.error.message);
-    else {
-      const item = await supabase
-        .from("food_entry_items")
-        .insert({
-          food_entry_id: entry.data.id,
-          food_id: selectedFood.id,
-          food_name_snapshot: selectedFood.name,
-          quantity,
-          unit,
-          grams: result.grams,
-          calories_snapshot: result.calories,
-          protein_snapshot: result.protein,
-        });
-      if (item.error) {
-        await supabase.from("food_entries").delete().eq("id", entry.data.id);
-        setError(item.error.message);
-      } else {
-        setMessage("Yiyecek kaydedildi.");
-        await refresh();
+    try {
+      const databaseFoodId = resolveFoodDatabaseId(
+        selectedFood.id,
+        foodDatabaseRows,
+      );
+      const result = calculateNutrition(selectedFood, quantity, unit);
+      const entry = await supabase
+        .from("food_entries")
+        .insert({ space_id: spaceId, owner_id: user.id, meal })
+        .select("id")
+        .single();
+      if (entry.error) setError(entry.error.message);
+      else {
+        const item = await supabase
+          .from("food_entry_items")
+          .insert({
+            food_entry_id: entry.data.id,
+            food_id: databaseFoodId,
+            food_name_snapshot: selectedFood.name,
+            quantity,
+            unit,
+            grams: result.grams,
+            calories_snapshot: result.calories,
+            protein_snapshot: result.protein,
+          });
+        if (item.error) {
+          const rollback = await supabase
+            .from("food_entries")
+            .delete()
+            .eq("id", entry.data.id);
+          setError(
+            rollback.error
+              ? `${item.error.message} Kayıt geri alınamadı: ${rollback.error.message}`
+              : item.error.message,
+          );
+        } else {
+          setMessage("Yiyecek kaydedildi.");
+          await refresh();
+        }
       }
+    } catch (foodError) {
+      setError(
+        foodError instanceof Error
+          ? foodError.message
+          : "Yiyecek kaydı için veritabanı eşleşmesi bulunamadı.",
+      );
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }
   async function addWater(amount: number) {
     if (!user || !spaceId || pending) return;

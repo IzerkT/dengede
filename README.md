@@ -57,6 +57,21 @@ where c.relnamespace = 'public'::regnamespace
 
 `space_members` için `cmd = 'INSERT'` satırı olmamalıdır. `water_update_owner` için `qual` ve `with_check` alanlarında `owner_id = auth.uid()` ile `public.is_space_member(space_id)` bulunmalıdır. Bu sorgular yalnızca doğrulama yapar; uzaktaki migration geçmişini değiştirmez.
 
+Yiyecek kataloğu için `20261026010000_seed_food_catalog_codes.sql` migration'ını da çalıştırın. Bu migration `foods.catalog_code` alanını ekler, mevcut isimlerle eşleşen satırları korur ve eksik yerel katalog kayıtlarını UUID'leri veritabanı tarafından üretilerek ekler. Uygulama `egg`, `chicken` ve `rice` gibi kodları yalnızca UI için kullanır; `food_entry_items.food_id` alanına her zaman `foods.id` UUID'sini yazar. Migration uygulandıktan sonra şu doğrulama sorgusu her katalog kodu için bir UUID döndürmelidir:
+
+```sql
+select catalog_code, id, name
+from public.foods
+where catalog_code in (
+  'egg', 'bread', 'white-cheese', 'yogurt', 'chicken', 'beef', 'fish',
+  'rice', 'pasta', 'oats', 'potato', 'lentil', 'tomato', 'banana',
+  'almond', 'olive-oil', 'menemen', 'kuru-fasulye'
+)
+order by catalog_code;
+```
+
+Uygulama ve migration dosyaları yerelde doğrulanmış olsa da canlı hatanın tamamen düzeldiğini söylemek için migration'ı hedef Supabase projesine uygulayın, PostgREST şemasını yenileyin ve giriş yapmış sıradan bir kullanıcıyla yumurta, tavuk ve pirinç ekleme akışını test edin. Service-role anahtarı kullanmayın.
+
 Düzeltme migration'ının doğrulama sorgusu:
 
 ```sql

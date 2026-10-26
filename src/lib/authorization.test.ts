@@ -12,7 +12,9 @@ describe("database authorization contract", () => {
   it("keeps tracking tables protected by RLS and owner-only mutations", () => {
     expect(initialMigration).toContain("alter table public.food_entries enable row level security");
     expect(initialMigration).toContain("create policy entries_update_owner");
+    expect(initialMigration).toContain("create policy entries_create_owner");
     expect(initialMigration).toContain("with check (owner_id = auth.uid()");
+    expect(initialMigration).toContain("public.is_space_member(space_id)");
     expect(initialMigration).toContain("create policy water_delete_owner");
   });
 
